@@ -1,0 +1,5 @@
+## Usage
+
+```julia
+] add GAFundamentals
+```

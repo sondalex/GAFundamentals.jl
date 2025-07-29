@@ -1,0 +1,353 @@
+using GAFundamentals.Utils
+using DataFrames
+using Test
+
+using GAFundamentals.Utils
+using DataFrames
+using Test
+using Statistics
+
+function dataframes_equal(
+        df1::DataFrame, df2::DataFrame;
+        check_column_order::Bool = true,
+        check_row_order::Bool = true,
+        rtol::Float64 = 1.0e-5
+    )
+    if check_column_order
+        if names(df1) != names(df2)
+            return false
+        end
+    elseif Set(names(df1)) != Set(names(df2))
+        return false
+    end
+
+    if size(df1) != size(df2)
+        return false
+    end
+
+    if !check_row_order
+        cols = [name for name in names(df1) if eltype(df1[!, name]) <: Union{Number, String, Symbol}]
+        if !isempty(cols)
+            df1 = sort(df1, cols)
+            df2 = sort(df2, cols)
+        end
+    end
+
+    for col in names(df1)
+        values1 = df1[!, col]
+        values2 = df2[!, col]
+
+        if eltype(values1) <: Number && eltype(values2) <: Number
+            for (v1, v2) in zip(values1, values2)
+                if isnan(v1) && isnan(v2)
+                    continue
+                elseif isnan(v1) || isnan(v2)
+                    return false
+                elseif !isapprox(v1, v2, rtol = rtol)
+                    return false
+                end
+            end
+        elseif values1 != values2
+            return false
+        end
+    end
+
+    return true
+end
+
+
+@testset "compute_scores tests" begin
+    @testset "Basic functionality" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020, 2021, 2021, 2021],
+            Ticker = ["AAPL", "MSFT", "GOOG", "AAPL", "MSFT", "GOOG"],
+            Value1 = [10.0, 5.0, 7.5, 12.0, 8.0, 9.0],
+            Value2 = [20.0, 15.0, 18.0, 22.0, 17.0, 20.0],
+            Metric1 = [0.8, 0.4, 0.6, 0.9, 0.7, 0.5]
+        )
+
+        groups = Dict(
+            "Value1" => "Group1",
+            "Value2" => "Group1",
+            "Metric1" => "Group2"
+        )
+
+        scores = compute_scores(fundamentals, groups)
+
+        @test length(keys(scores)) == 2
+        @test haskey(scores, "Group1")
+        @test haskey(scores, "Group2")
+        @test length(scores["Group1"]) == 6
+        @test length(scores["Group2"]) == 6
+
+        @test scores["Group1"] ≈ [
+            (10.0 + 20.0) / 2,  # AAPL 2020,
+            (5.0 + 15.0) / 2,   # MSFT 2020
+            (7.5 + 18.0) / 2,   # GOOG 2020
+            (12.0 + 22.0) / 2,  # AAPL 2021
+            (8.0 + 17.0) / 2,   # MSFT 2021
+            (9.0 + 20.0) / 2,   # GOOG 2021
+        ]
+        @test scores["Group2"] ≈ [
+            0.8,  # AAPL 2020,
+            0.4,  # MSFT 2020
+            0.6,  # GOOG 2020
+            0.9,  # AAPL 2021
+            0.7, # MSFT 2021
+            0.5,  # GOOG 2021
+        ]
+    end
+
+    @testset "Empty groups dictionary" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2021],
+            Ticker = ["AAPL", "MSFT"],
+            Value = [10.0, 15.0]
+        )
+
+        groups = Dict{String, String}()
+
+        scores = compute_scores(fundamentals, groups)
+        @test isempty(scores)
+    end
+
+    @testset "Single group with multiple columns" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Metric1 = [0.9, 0.5, 0.7],
+            Metric2 = [0.8, 0.6, 0.4],
+            Metric3 = [0.7, 0.8, 0.6]
+        )
+
+        groups = Dict(
+            "Metric1" => "Group1",
+            "Metric2" => "Group1",
+            "Metric3" => "Group1"
+        )
+
+        scores = compute_scores(fundamentals, groups)
+
+        @test scores["Group1"] ≈ [
+            (0.9 + 0.8 + 0.7) / 3, # AAPL average
+            (0.5 + 0.6 + 0.8) / 3, # MSFT average
+            (0.7 + 0.4 + 0.6) / 3,  # GOOG average
+        ]
+    end
+
+    @testset "Multiple groups" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            ValMetric1 = [10.0, 5.0, 8.0],
+            ValMetric2 = [20.0, 15.0, 18.0],
+            GrowthMetric1 = [0.9, 0.5, 0.7],
+            GrowthMetric2 = [0.8, 0.6, 0.4]
+        )
+
+        groups = Dict(
+            "ValMetric1" => "Valuation",
+            "ValMetric2" => "Valuation",
+            "GrowthMetric1" => "Growth",
+            "GrowthMetric2" => "Growth"
+        )
+
+        scores = compute_scores(fundamentals, groups)
+
+        @test scores["Valuation"] ≈ [
+            (10.0 + 20.0) / 2,  # AAPL valuation
+            (5.0 + 15.0) / 2,   # MSFT valuation
+            (8.0 + 18.0) / 2,   # GOOG valuation
+        ]
+
+        @test scores["Growth"] ≈ [
+            (0.9 + 0.8) / 2,  # AAPL growth
+            (0.5 + 0.6) / 2,  # MSFT growth
+            (0.7 + 0.4) / 2,  # GOOG growth
+        ]
+    end
+
+    @testset "Handling NaN values" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Metric1 = [0.9, NaN, 0.7],   # MSFT has NaN in Metric1
+            Metric2 = [0.8, 0.6, 0.4],
+            Metric3 = [0.7, 0.8, NaN]    # GOOG has NaN in Metric3
+        )
+
+        groups = Dict(
+            "Metric1" => "Group1",
+            "Metric2" => "Group1",
+            "Metric3" => "Group1"
+        )
+
+        scores = compute_scores(fundamentals, groups)
+
+        @test scores["Group1"] ≈ [
+            (0.9 + 0.8 + 0.7) / 3,  # AAPL: all values available
+            (0.6 + 0.8) / 2,       # MSFT: ignoring NaN
+            (0.7 + 0.4) / 2,       # GOOG: ignoring NaN
+        ]
+        fundamentals2 = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            ValMetric1 = [10.0, 5.0, NaN],
+            ValMetric2 = [20.0, NaN, NaN],  # GOOG has all NaNs in Valuation group
+            GrowthMetric1 = [0.9, 0.5, 0.7],
+            GrowthMetric2 = [0.8, 0.6, 0.4]
+        )
+
+        groups2 = Dict(
+            "ValMetric1" => "Valuation",
+            "ValMetric2" => "Valuation",
+            "GrowthMetric1" => "Growth",
+            "GrowthMetric2" => "Growth"
+        )
+
+        scores2 = compute_scores(fundamentals2, groups2)
+
+        @test isequal(
+            scores2["Valuation"], [
+                (10.0 + 20.0) / 2,  # AAPL: normal case
+                5.0,               # MSFT: only one value available
+                NaN,
+            ]
+        )
+        @test scores2["Growth"] ≈ [
+            (0.9 + 0.8) / 2,  # AAPL
+            (0.5 + 0.6) / 2,  # MSFT
+            (0.7 + 0.4) / 2,  # GOOG
+        ]
+    end
+end
+
+@testset "compute_rank tests" begin
+    @testset "Basic functionality" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020, 2021, 2021, 2021],
+            Ticker = ["AAPL", "MSFT", "GOOG", "AAPL", "MSFT", "GOOG"],
+            Value1 = [10.0, 5.0, 7.5, 12.0, 8.0, 9.0],
+            Value2 = [20.0, 15.0, 18.0, 22.0, 17.0, 20.0],
+            Metric1 = [0.8, 0.4, 0.6, 0.9, 0.7, 0.5]
+        )
+
+        groups = Dict(
+            "Value1" => "Group1",
+            "Value2" => "Group1",
+            "Metric1" => "Group2"
+        )
+
+        result = compute_rank(fundamentals, groups)
+
+        expected_result = DataFrame(
+            Year = [2020, 2020, 2020, 2021, 2021, 2021],
+            Ticker = ["AAPL", "MSFT", "GOOG", "AAPL", "MSFT", "GOOG"],
+            Rank = [1.0, 3.0, 2.0, 1.0, 3.0, 2.0]
+        )
+        @test dataframes_equal(result, expected_result)
+
+    end
+
+    @testset "Single group with multiple columns" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Metric1 = [0.9, 0.5, 0.7],
+            Metric2 = [0.8, 0.6, 0.4],
+            Metric3 = [0.7, 0.8, 0.6]
+        )
+
+        groups = Dict(
+            "Metric1" => "Group1",
+            "Metric2" => "Group1",
+            "Metric3" => "Group1"
+        )
+
+        result = compute_rank(fundamentals, groups)
+
+        expected_result = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Rank = [1.0, 2.0, 3.0]
+        )
+        @test dataframes_equal(result, expected_result)
+    end
+
+    @testset "Multiple groups" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            ValMetric1 = [10.0, 5.0, 8.0],
+            ValMetric2 = [20.0, 15.0, 18.0],
+            GrowthMetric1 = [0.9, 0.5, 0.7],
+            GrowthMetric2 = [0.8, 0.6, 0.4]
+        )
+
+        groups = Dict(
+            "ValMetric1" => "Valuation",
+            "ValMetric2" => "Valuation",
+            "GrowthMetric1" => "Growth",
+            "GrowthMetric2" => "Growth"
+        )
+
+        result = compute_rank(fundamentals, groups)
+
+        expected_result = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Rank = [1.0, 3.0, 2.0]
+        )
+        @test dataframes_equal(result, expected_result)
+    end
+
+    @testset "Handling NaN values" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Metric1 = [0.9, NaN, 0.7],   # MSFT has NaN in Metric1
+            Metric2 = [0.8, 0.6, 0.4],
+            Metric3 = [0.7, 0.8, NaN]    # GOOG has NaN in Metric3
+        )
+
+        groups = Dict(
+            "Metric1" => "Group1",
+            "Metric2" => "Group1",
+            "Metric3" => "Group1"
+        )
+
+        result = compute_rank(fundamentals, groups)
+
+        expected_result = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Rank = [1.0, 2.0, 3.0]
+        )
+        @test dataframes_equal(result, expected_result)
+
+        fundamentals2 = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            ValMetric1 = [10.0, 5.0, NaN],
+            ValMetric2 = [20.0, NaN, 3.0],
+            GrowthMetric1 = [0.9, 0.5, 0.7],
+            GrowthMetric2 = [0.8, 0.6, 0.4]
+        )
+
+        groups2 = Dict(
+            "ValMetric1" => "Valuation",
+            "ValMetric2" => "Valuation",
+            "GrowthMetric1" => "Growth",
+            "GrowthMetric2" => "Growth"
+        )
+
+        result2 = compute_rank(fundamentals2, groups2)
+
+        expected_result2 = DataFrame(
+            Year = [2020, 2020, 2020],
+            Ticker = ["AAPL", "MSFT", "GOOG"],
+            Rank = [1.0, 2.0, 3.0]
+        )
+        @test dataframes_equal(result2, expected_result2)
+    end
+end

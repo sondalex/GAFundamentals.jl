@@ -7,7 +7,7 @@ using Dates
 using Plots
 
 
-export get_fundamental_names, sum_scores, compute_rank, cum_returns, returns, portfolio_returns, epochns_to_datetime, mirror, top_n, bottom_n, plot_portfolio, compute_scores
+export get_fundamental_names, sum_scores, compute_rank, cum_returns, returns, portfolio_returns, epochns_to_datetime, mirror, top_n, bottom_n, plot_portfolio, compute_scores, safe_mean
 
 function mirror(prices::DataFrame, group_n::DataFrame)::DataFrame
     data = DataFrame()
@@ -92,8 +92,14 @@ function epochns_to_datetime(value::Int64)::TimeDate
     return result
 end
 
-function safe_mean(x)
+function safe_mean(x::Union{AbstractVector{T}, DataFrameRow})::Float64 where {T <: Union{Missing, Real}}
+
     valid_values = filter(!isnan, collect(skipmissing(x)))
+
+    if isempty(valid_values)
+        return NaN
+    end
+
     return mean(valid_values)
 end
 
@@ -114,7 +120,6 @@ function compute_scores(fundamentals::DataFrame, groups::Dict{String, String})::
     )
 
     for (group, cols) in group_columns
-        @assert !isempty(cols) 
         avg = safe_mean.(eachrow(fundamentals[:, cols]))
         scores[group] = avg
     end

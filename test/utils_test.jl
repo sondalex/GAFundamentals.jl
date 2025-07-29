@@ -55,6 +55,88 @@ function dataframes_equal(
     return true
 end
 
+@testset "safe_mean tests" begin
+    @testset "Normal numeric values" begin
+        @test safe_mean([1.0, 2.0, 3.0]) ≈ 2.0
+        @test safe_mean([1, 2, 3, 4]) ≈ 2.5
+        @test safe_mean([-1.5, 2.5]) ≈ 0.5
+    end
+
+    @testset "NaN values" begin
+        @test safe_mean([1.0, NaN, 3.0]) ≈ 2.0
+        @test safe_mean([NaN, 2.0, 3.0, NaN]) ≈ 2.5
+        @test safe_mean([NaN, 10.0]) ≈ 10.0
+    end
+
+    @testset "All NaN values" begin
+        @test isnan(safe_mean([NaN, NaN, NaN]))
+    end
+
+    @testset "Empty collection" begin
+        @test isnan(safe_mean(Float64[]))
+        @test isnan(safe_mean(Int[]))
+    end
+
+    @testset "Missing values" begin
+        @test safe_mean([1.0, missing, 3.0]) ≈ 2.0
+        @test safe_mean([missing, 10.0, missing]) ≈ 10.0
+        @test isnan(safe_mean([missing, missing, missing]))
+    end
+
+    @testset "Mixed NaN and missing" begin
+        @test safe_mean([1.0, NaN, missing, 3.0]) ≈ 2.0
+        @test isnan(safe_mean([NaN, missing, NaN, missing]))
+    end
+
+    @testset "Different vector types" begin
+        @test safe_mean(view([1.0, 2.0, 3.0, 4.0], 1:3)) ≈ 2.0
+        @test safe_mean(reshape([1.0, 2.0, 3.0], 3, 1)[:]) ≈ 2.0
+    end
+
+    @testset "Edge cases" begin
+        @test safe_mean([42.0]) ≈ 42.0
+        @test safe_mean([42]) == 42.0
+
+        @test safe_mean([1.0e10, 2.0e10, 3.0e10]) ≈ 2.0e10
+
+        @test safe_mean([1.0e-10, 2.0e-10, 3.0e-10]) ≈ 2.0e-10
+
+        @test safe_mean([1, 2.0, 3]) ≈ 2.0
+    end
+
+    @testset "Integration with compute_scores" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020],
+            Ticker = ["AAPL", "MSFT"],
+            Value1 = [10.0, NaN],
+            Value2 = [20.0, 15.0]
+        )
+
+        groups = Dict(
+            "Value1" => "Group1",
+            "Value2" => "Group1"
+        )
+
+        scores = compute_scores(fundamentals, groups)
+
+        @test scores["Group1"] ≈ [
+            (10.0 + 20.0) / 2,
+            15.0
+        ]
+    end
+
+    @testset "Integration with empty columns" begin
+        fundamentals = DataFrame(
+            Year = [2020, 2020],
+            Ticker = ["AAPL", "MSFT"]
+        )
+
+        empty_groups = Dict("NonExistentColumn" => "EmptyGroup")
+
+        @test_throws Exception compute_scores(fundamentals, empty_groups)
+    end
+end
+
 
 @testset "compute_scores tests" begin
     @testset "Basic functionality" begin

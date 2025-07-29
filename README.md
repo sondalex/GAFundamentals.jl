@@ -4,8 +4,10 @@
 
 ```julia
 # julia --project="@gafundamentals"
-add https://github.com/sondalex/GAFundamentals.jl.git
+] add https://github.com/sondalex/GAFundamentals.jl.git
+] build
 ```
+
 ### Command Line
 
 If not set, add ~/.julia/bin to your path:

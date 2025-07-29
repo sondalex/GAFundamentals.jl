@@ -114,6 +114,7 @@ function compute_scores(fundamentals::DataFrame, groups::Dict{String, String})::
     )
 
     for (group, cols) in group_columns
+        @assert !isempty(cols) 
         avg = safe_mean.(eachrow(fundamentals[:, cols]))
         scores[group] = avg
     end

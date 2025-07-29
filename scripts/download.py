@@ -110,6 +110,7 @@ def download_fundamentals(symbols: List[str], start_date: datetime, end_date: da
 def multicolumn_df_to_singlecolumn(
     df: pd.DataFrame,
 ) -> Tuple[pd.DataFrame, Dict[str, str]]:
+    df = df.copy()
     if not isinstance(df.columns, pd.MultiIndex):
         raise ValueError("Expected multiindex columns")
     columns = df.columns

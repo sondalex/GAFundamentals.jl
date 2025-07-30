@@ -6,8 +6,11 @@ using TimesDates
 using Dates
 using Plots
 
-
-export get_fundamental_names, sum_scores, compute_rank, cum_returns, returns, portfolio_returns, epochns_to_datetime, mirror, top_n, bottom_n, plot_portfolio, compute_scores, safe_mean
+export get_fundamental_names
+export sum_scores, compute_rank, top_n, bottom_n
+export cum_returns, returns, portfolio_returns
+export mirror, compute_scores, safe_mean
+export plot_portfolio, epochns_to_datetime
 
 function mirror(prices::DataFrame, group_n::DataFrame)::DataFrame
     data = DataFrame()
@@ -215,7 +218,11 @@ function plot_portfolio(prices::DataFrame, fundamentals::DataFrame, groups::Dict
     x = DateTime.(ct[:, :Date])
     y1 = ct[:, :Close]
     y2 = cb[:, :Close]
-    return plot(x, [y1, y2])
+    @assert length(y1) == length(y2)
+    @assert length(y1) == length(x)
+    p = plot(x, y1, label="Top Portfolio")
+    plot!(p, x, y2, label="Bottom Portfolio")
+    return p
 end
 
 

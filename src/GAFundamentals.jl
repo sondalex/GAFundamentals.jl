@@ -72,8 +72,26 @@ function fitness(prices::DataFrame, fundamentals::DataFrame, groups::Dict{String
     end
 end
 
+function save_metadata(original_columns::AbstractVector{String}, optimal_columns::AbstractVector{String}, path::String)
+    d = Dict("optimal" => optimal_columns, "original" => original_columns)
+    return open(path, "w") do f
+        JSON.print(f, d)
+    end
+end
 
-function run(prices::DataFrame, fundamentals::DataFrame, fundamental_groups::Dict{String, String}, verbose::Bool)
+function run(
+        prices::DataFrame,
+        fundamentals::DataFrame,
+        fundamental_groups::Dict{
+            String,
+            String,
+        },
+        output::AbstractString,
+        verbose::Bool,
+        f_calls_limit = 10000.0,
+        iterations::Int = 1000,
+        time_limit::Float64 = 60.0
+    )
     n_features = ncol(fundamentals) - 2 # Remove 2 to ignore Year and Ticker column
     lb = zeros(n_features)
     ub = ones(n_features)
@@ -81,22 +99,38 @@ function run(prices::DataFrame, fundamentals::DataFrame, fundamental_groups::Dic
     result = optimize(
         fitness(prices, fundamentals, fundamental_groups),
         bounds,
-        NSGA2(options = Options(verbose = verbose))
+        NSGA2(
+            options = Options(
+                verbose = verbose,
+                f_calls_limit = f_calls_limit,
+                iterations = iterations,
+                time_limit = time_limit
+            )
+        )
     )
     optimal_mask = minimizer(result) .> THRESHOLD
     fundamental_names = get_fundamental_names(names(fundamentals))
     colnames = fundamental_names[optimal_mask]
 
     p1 = plot_portfolio(prices, fundamentals, fundamental_groups)
-    savefig(p1, "notoptimized.png")
+    save_metadata(fundamental_names, colnames, joinpath(output, "data.json"))
+    savefig(p1, joinpath(output, "notoptimized.png"))
     filtered_groups = Dict(k => v for (k, v) in fundamental_groups if k in colnames)
     selected_columns = [["Year", "Ticker"]..., colnames...]
     p2 = plot_portfolio(prices, fundamentals[:, selected_columns], filtered_groups)
-    return savefig(p2, "optimized.png")
+    return savefig(p2, joinpath(output, "optimized.png"))
 end
 
 
-@Comonicon.main function main(prices_path::AbstractString, fundamentals_path::AbstractString; verbose::Bool = false)
+@Comonicon.main function main(
+        prices_path::AbstractString,
+        fundamentals_path::AbstractString,
+        output::AbstractString;
+        verbose::Bool = false,
+        f_calls_limit = 10000.0,
+        iterations::Int = 1000,
+        time_limit::Float64 = 60.0
+    )
     prices_input = Parquet.File(prices_path)
     prices = read(prices_input)
     prices[!, :Date] = epochns_to_datetime.(prices[:, :Date])
@@ -105,6 +139,6 @@ end
     fundamentals[!, :Year] = epochns_to_datetime.(fundamentals[:, :Year])
     fundamentals_groups = get_pandas_attr(fundamentals_input)["columns"]
 
-    run(prices, fundamentals, fundamentals_groups, verbose)
+    run(prices, fundamentals, fundamentals_groups, output, verbose, f_calls_limit, iterations, time_limit)
 end
 end

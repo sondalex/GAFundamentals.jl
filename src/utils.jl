@@ -8,7 +8,7 @@ using Plots
 
 export get_fundamental_names
 export sum_scores, compute_rank, top_n, bottom_n
-export cum_returns, returns, portfolio_returns
+export cum_returns, returns, portfolio_returns, cum_returns_strategies
 export mirror, compute_scores, safe_mean
 export plot_portfolio, epochns_to_datetime
 
@@ -25,7 +25,7 @@ function mirror(prices::DataFrame, group_n::DataFrame)::DataFrame
     return data
 end
 
-function returns(prices::DataFrame)::DataFrame
+function returns(prices::Union{DataFrame, SubDataFrame})::DataFrame
     data = DataFrame()
 
     for ticker_group in groupby(prices, :Ticker)
@@ -33,8 +33,8 @@ function returns(prices::DataFrame)::DataFrame
 
         if nrow(ticker_group) > 1
             ticker_returns = DataFrame(
-                Date = ticker_group[2:end, :Date],
                 Ticker = ticker_group[2:end, :Ticker],
+                Date = ticker_group[2:end, :Date],
                 Close = diff(ticker_group[:, :Close]) ./ ticker_group[1:(end - 1), :Close]
             )
             append!(data, ticker_returns)
@@ -43,19 +43,11 @@ function returns(prices::DataFrame)::DataFrame
     return data
 end
 
-function portfolio_returns(returns::DataFrame)
-    date_index = returns[:, :Date]
-    years = year.(date_index)
-    data = DataFrame()
-    for year in unique(years)
-        subset = returns[years .== year, :]
-        ar = combine(groupby(subset, :Date), :Close => mean => :Close)
-        append!(data, ar)
-    end
-    return sort(data, :Date)
+function portfolio_returns(returns::Union{DataFrame, SubDataFrame})
+    return sort(combine(groupby(returns, :Date), :Close => mean => :Close), :Date)
 end
 
-function cum_returns(portfolio_returns::DataFrame; starting_value::Float64 = 1.0)::DataFrame
+function cum_returns(portfolio_returns::Union{DataFrame, SubDataFrame}; starting_value::Float64 = 1.0)::DataFrame
     @assert issorted(portfolio_returns, :Date)
 
     nanmask = isnan.(portfolio_returns[:, :Close])
@@ -78,6 +70,24 @@ function cum_returns(portfolio_returns::DataFrame; starting_value::Float64 = 1.0
     )
 
     return data
+end
+
+function cum_returns_strategies(
+        returns_group::GroupedDataFrame; starting_value = 1.0
+    )
+    sorted_years = sort(collect(keys(returns_group)))
+
+    result_df = DataFrame()
+    last_value = starting_value
+
+    for year in sorted_years
+        year_df = returns_group[year]
+        cum_returns_year = cum_returns(year_df; starting_value = last_value)
+        append!(result_df, cum_returns_year)
+
+        last_value = cum_returns_year[end, :Close]
+    end
+    return result_df
 end
 
 
@@ -209,19 +219,25 @@ function plot_portfolio(prices::DataFrame, fundamentals::DataFrame, groups::Dict
 
     top_mirrored = mirror(prices, tn)
     bottom_mirrored = mirror(prices, bn)
-    rt = returns(top_mirrored)
-    rb = returns(bottom_mirrored)
-    pt = portfolio_returns(rt)
-    pb = portfolio_returns(rb)
-    ct = cum_returns(pt)
-    cb = cum_returns(pb)
+
+    transform!(top_mirrored, :Date => ByRow(date -> year(date)) => :Year)
+    transform!(bottom_mirrored, :Date => ByRow(date -> year(date)) => :Year)
+    rt = combine(groupby(top_mirrored, :Year), returns)
+    rb = combine(groupby(bottom_mirrored, :Year), returns)
+    pt = combine(groupby(rt, :Year), portfolio_returns)
+    pb = combine(groupby(rb, :Year), portfolio_returns)
+
+    ct = cum_returns_strategies(groupby(pt, :Year))
+    cb = cum_returns_strategies(groupby(pb, :Year))
+
+
     x = DateTime.(ct[:, :Date])
     y1 = ct[:, :Close]
     y2 = cb[:, :Close]
     @assert length(y1) == length(y2)
     @assert length(y1) == length(x)
-    p = plot(x, y1, label="Top Portfolio")
-    plot!(p, x, y2, label="Bottom Portfolio")
+    p = plot(x, y1, label = "Top Portfolio")
+    plot!(p, x, y2, label = "Bottom Portfolio")
     return p
 end
 

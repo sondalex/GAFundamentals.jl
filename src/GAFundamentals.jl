@@ -1,6 +1,7 @@
 module GAFundamentals
 import Comonicon
 using TimesDates
+using Dates
 using Parquet
 using DataFrames
 using Metaheuristics
@@ -56,12 +57,15 @@ function fitness(prices::DataFrame, fundamentals::DataFrame, groups::Dict{String
 
         top_mirrored = mirror(prices, tn)
         bottom_mirrored = mirror(prices, bn)
-        rt = returns(top_mirrored)
-        rb = returns(bottom_mirrored)
-        pt = portfolio_returns(rt)
-        pb = portfolio_returns(rb)
-        ct = cum_returns(pt)
-        cb = cum_returns(pb)
+        transform!(top_mirrored, :Date => ByRow(date -> year(date)) => :Year)
+        transform!(bottom_mirrored, :Date => ByRow(date -> year(date)) => :Year)
+        rt = combine(groupby(top_mirrored, :Year), returns)
+        rb = combine(groupby(bottom_mirrored, :Year), returns)
+        pt = combine(groupby(rt, :Year), portfolio_returns)
+        pb = combine(groupby(rb, :Year), portfolio_returns)
+
+        ct = cum_returns_strategies(groupby(pt, :Year))
+        cb = cum_returns_strategies(groupby(pb, :Year))
 
         fx1 = last(ct[:, :Close])
         fx2 = last(cb[:, :Close])

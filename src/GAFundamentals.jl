@@ -1,5 +1,6 @@
 module GAFundamentals
 import Comonicon
+import Comonicon.Arg: Path
 using TimesDates
 using Dates
 using Parquet
@@ -14,6 +15,7 @@ import Plots: savefig
 
 THRESHOLD = 0.5
 
+const Enabled = String
 
 function get_pandas_attr(file::Parquet.File)::Dict{String, Dict{String, String}}
     meta = file.meta.key_value_metadata
@@ -83,6 +85,16 @@ function save_metadata(original_columns::AbstractVector{String}, optimal_columns
     end
 end
 
+"""
+# Arguments
+- `prices::DataFrame`: The DataFrame with prices
+- `fundamentals::DataFrame`: The fundamentals DataFrame
+- `fundamental_groups::Dict{String, String}`: A mapping of each fundamentals column to its associated group 
+- `output::AbstractString`: The place where to save
+- `verbose::Bool`: Whether to display the progress in the optimization 
+- `user_solutions::Union{DataFrame, Nothing}`: A Bit DataFrame, 1 demonstrate presence, 0 absence of feature
+
+"""
 function run(
         prices::DataFrame,
         fundamentals::DataFrame,
@@ -92,57 +104,99 @@ function run(
         },
         output::AbstractString,
         verbose::Bool,
-        f_calls_limit = 10000.0,
-        iterations::Int = 1000,
-        time_limit::Float64 = 60.0
+        user_solutions::Union{DataFrame, Nothing},
+        f_calls_limit,
+        iterations::Int,
+        time_limit::Float64
     )
-    n_features = ncol(fundamentals) - 2 # Remove 2 to ignore Year and Ticker column
+    # NOTE: Remove 2 to ignore Year and Ticker column
+    n_features = ncol(fundamentals) - 2
     lb = zeros(n_features)
     ub = ones(n_features)
     bounds = BoxConstrainedSpace(lb = lb, ub = ub)
-    result = optimize(
-        fitness(prices, fundamentals, fundamental_groups),
-        bounds,
-        NSGA2(
-            options = Options(
-                verbose = verbose,
-                f_calls_limit = f_calls_limit,
-                iterations = iterations,
-                time_limit = time_limit
-            )
+
+    algo = NSGA2(
+        # N = 200,
+        # p_cr = 0.5,
+        # p_m = 0.5,
+        # n_cr = 20,
+        # n_m = 10,
+        options = Options(
+            verbose = verbose,
+            f_calls_limit = f_calls_limit,
+            iterations = iterations,
+            time_limit = time_limit
         )
+    )
+    f = fitness(prices, fundamentals, fundamental_groups)
+    if !isnothing(user_solutions)
+        @assert ncol(user_solutions) == n_features
+        user_solutions = replace(v -> Bool(v) ? THRESHOLD : 0, Matrix(float.(user_solutions)))
+
+        set_user_solutions!(algo, user_solutions, f)
+    end
+
+
+    result = optimize(
+        f,
+        bounds,
+        algo
     )
     optimal_mask = minimizer(result) .> THRESHOLD
     fundamental_names = get_fundamental_names(names(fundamentals))
     colnames = fundamental_names[optimal_mask]
 
     p1 = plot_portfolio(prices, fundamentals, fundamental_groups)
-    save_metadata(fundamental_names, colnames, joinpath(output, "data.json"))
+    save_metadata(
+        fundamental_names,
+        colnames,
+        joinpath(output, "data.json")
+    )
     savefig(p1, joinpath(output, "notoptimized.png"))
     filtered_groups = Dict(k => v for (k, v) in fundamental_groups if k in colnames)
     selected_columns = [["Year", "Ticker"]..., colnames...]
-    p2 = plot_portfolio(prices, fundamentals[:, selected_columns], filtered_groups)
+    p2 = plot_portfolio(
+        prices,
+        fundamentals[:, selected_columns],
+        filtered_groups
+    )
     return savefig(p2, joinpath(output, "optimized.png"))
 end
 
 
 @Comonicon.main function main(
-        prices_path::AbstractString,
-        fundamentals_path::AbstractString,
-        output::AbstractString;
+        prices_path::Path,
+        fundamentals_path::Path,
+        output::Path;
+        user_sol_path::Path = nothing,
         verbose::Bool = false,
         f_calls_limit = 10000.0,
         iterations::Int = 1000,
         time_limit::Float64 = 60.0
     )
-    prices_input = Parquet.File(prices_path)
+    prices_input = Parquet.File(prices_path.content)
     prices = read(prices_input)
     prices[!, :Date] = epochns_to_datetime.(prices[:, :Date])
-    fundamentals_input = Parquet.File(fundamentals_path)
+    fundamentals_input = Parquet.File(fundamentals_path.content)
     fundamentals = read(fundamentals_input)
     fundamentals[!, :Year] = epochns_to_datetime.(fundamentals[:, :Year])
     fundamentals_groups = get_pandas_attr(fundamentals_input)["columns"]
 
-    run(prices, fundamentals, fundamentals_groups, output, verbose, f_calls_limit, iterations, time_limit)
+
+    user_solutions = isnothing(user_sol_path) ? nothing : DataFrame(
+            read_parquet(user_sol_path.content)
+        )
+
+    run(
+        prices,
+        fundamentals,
+        fundamentals_groups,
+        output.content,
+        verbose,
+        user_solutions,
+        f_calls_limit,
+        iterations,
+        time_limit
+    )
 end
 end

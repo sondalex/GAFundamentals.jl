@@ -266,8 +266,8 @@ end
 @Comonicon.main function main(
         prices_path::Path,
         fundamentals_path::Path,
-        output::Path,
-        n::Int;
+        output::Path;
+        n::Int,
         user_sol_path::Path = Path(""),
         verbose::Bool = false,
         f_calls_limit = 10000.0,

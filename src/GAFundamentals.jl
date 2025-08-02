@@ -82,6 +82,19 @@ function find_at(
     return result
 end
 
+function mix(as::Vector{T}, bs::Vector{T}) where {T}
+    len = length(as)
+    @assert len == length(bs)
+    vs = Vector{T}(undef, len * 2)
+    i = 1
+    for (a, b) in zip(as, bs)
+        vs[i] = a
+        vs[i + 1] = b
+        i += 2
+    end
+    return vs
+end
+
 function fitness(
         prices::DataFrame,
         fundamentals::DataFrame,
@@ -155,9 +168,7 @@ function fitness(
         @assert length(fxs1) == length(fxs2)
 
         fx = Vector{Float64}(undef, n_years * 2)
-        fx[1:length(fxs1)] = .-fxs1
-        fx[(length(fxs1) + 1):end] = fxs2
-
+        fx[1:end] = mix(reverse(Float64.(.-fxs1)), reverse(Float64.(fxs2))) # Orders matters --> Prioritize long term
         return fx, gx, hx
     end
 end

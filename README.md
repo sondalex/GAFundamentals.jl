@@ -4,8 +4,8 @@
 
 ```julia
 # julia --project="@gafundamentals"
-] add https://github.com/sondalex/GAFundamentals.jl.git
-] build
+pkg> add https://github.com/sondalex/GAFundamentals.jl.git
+pkg> build
 ```
 
 ### Command Line
@@ -24,9 +24,15 @@ gafundamentals --help
 ## Development
 
 ```julia
-] precompile
+pkg> precompile
 ```
 
 ```julia
-] build
+pkg> build
+```
+
+### Testing
+
+```julia
+pkg> test
 ```

@@ -1,6 +1,7 @@
 using GAFundamentals.Utils
 using DataFrames
 using Test
+using Dates
 
 using GAFundamentals.Utils
 using DataFrames
@@ -121,7 +122,7 @@ end
 
         @test scores["Group1"] ≈ [
             (10.0 + 20.0) / 2,
-            15.0
+            15.0,
         ]
     end
 
@@ -432,4 +433,154 @@ end
         )
         @test dataframes_equal(result2, expected_result2)
     end
+end
+
+@testset "mirror" begin
+    prices = DataFrame(
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-01"),
+            Date("2021-01-01"),
+            Date("2021-01-01"),
+            Date("2022-01-01"),
+            Date("2022-01-01"),
+        ],
+        Ticker = ["A", "B", "B", "A", "A", "B"],
+        Close = [100, 105, 110, 120, 130, 140]
+    )
+
+    group_n = DataFrame(
+        Year = [Date("2020-01-01"), Date("2021-01-01")],
+        Ticker = ["A", "B"]
+    )
+
+    result = mirror(prices, group_n)
+
+    expected = DataFrame(
+        Date = [
+            Date("2021-01-01"),
+            Date("2022-01-01"),
+        ],
+        Ticker = ["A", "B"],
+        Close = [120, 140]
+    )
+
+    @test isequal(result, expected)
+end
+
+@testset "returns" begin
+    prices = DataFrame(
+        Ticker = ["A", "A", "B", "B", "B"],
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+        Close = [100.0, 110.0, 200.0, 210.0, 220.0]
+    )
+
+    result = returns(prices)
+
+    expected = DataFrame(
+        Ticker = ["A", "A", "B", "B", "B"],
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+
+        Close = [
+            NaN,
+            ((110.0 - 100.0) / 100.0),
+            NaN,
+            ((210.0 - 200.0) / 200.0),
+            ((220.0 - 210.0) / 210.0),
+        ]
+    )
+
+    @test isequal(result, expected)
+end
+
+@testset "portfolio_returns computes mean return per date" begin
+    returns = DataFrame(
+        Ticker = ["A", "A", "B", "B", "B"],
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+
+        Close = [
+            NaN,
+            ((110.0 - 100.0) / 100.0),
+            NaN,
+            ((210.0 - 200.0) / 200.0),
+            ((220.0 - 210.0) / 210.0),
+        ]
+
+    )
+    result = portfolio_returns(returns)
+    expected = DataFrame(
+        Date = [Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-03")],
+        Close = [
+            NaN,
+            (((110.0 - 100.0) / 100.0) + ((210.0 - 200.0) / 200.0)) / 2,
+            ((220.0 - 210.0) / 210.0),
+        ]
+    )
+    @test isequal(result, expected)
+end
+
+@testset "cum_returns computes cumulative returns with NaN handling and starting value" begin
+    portfolio_returns = DataFrame(
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+
+        Close = [
+            NaN,
+            0.1,
+            0.05,
+        ]
+    )
+
+    # Default starting_value = 1.0
+    result_default = cum_returns(portfolio_returns)
+    expected_default = DataFrame(
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+        Close = [
+            1.0,
+            1.0 * (1.0 + 0.1),
+            1.0 * (1.0 + 0.1) * (1.0 + 0.05),
+        ]
+    )
+    @test dataframes_equal(result_default, expected_default)
+
+    # starting_value = 0
+    result_zero = cum_returns(portfolio_returns; starting_value = 0.0)
+    expected_zero = DataFrame(
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2020-01-03"),
+        ],
+        Close = [
+            0.0,
+            ((1.0) * (1.0 + 0.1)) - 1,
+            (1.0 * (1.0 + 0.1) * (1.0 + 0.05)) - 1.0,
+        ]
+    )
+    @test dataframes_equal(result_zero, expected_zero)
 end

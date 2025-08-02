@@ -12,6 +12,26 @@ export cum_returns, returns, portfolio_returns, cum_returns_strategies
 export mirror, compute_scores, safe_mean
 export plot_portfolio, epochns_to_datetime
 
+"""
+    mirror(prices::DataFrame, group_n::DataFrame) -> DataFrame
+
+Selects and concatenates rows from `prices` corresponding to the tickers and years specified in `group_n`, but for the year following each entry in `group_n`.
+
+# Arguments
+- `prices::DataFrame`: DataFrame containing price information with columns `:Date` and `:Ticker`.
+- `group_n::DataFrame`: DataFrame specifying groups with columns `:Year` and `:Ticker`.
+
+# Returns
+- `DataFrame`: A new DataFrame containing all rows from `prices` where the year is one greater than the `:Year` in `group_n` and the `:Ticker` matches. The result is concatenated over all years in `group_n`.
+
+# Example
+
+```julia
+# group_n contains tickers and years of interest
+mirror(prices, group_n)
+# Returns price rows for each ticker in group_n, but for the year after each group_n :Year
+```
+"""
 function mirror(prices::DataFrame, group_n::DataFrame)::DataFrame
     data = DataFrame()
     for year_dt in unique(group_n[:, :Year])
@@ -25,28 +45,128 @@ function mirror(prices::DataFrame, group_n::DataFrame)::DataFrame
     return data
 end
 
+"""
+    returns(prices::Union{DataFrame, SubDataFrame}) -> DataFrame
+
+Calculates period-over-period returns for each ticker, preserving the input dimension.
+The first row for each ticker will have a `NaN` return (since no previous value exists).
+
+# Arguments
+- `prices::Union{DataFrame, SubDataFrame}`: DataFrame with columns `:Ticker`, `:Date`, and `:Close`.
+  Assumes each ticker's data is sorted by `:Date`.
+
+# Returns
+- `DataFrame`: DataFrame with columns `:Ticker`, `:Date`, and `:Close`, where `:Close` is the return
+  computed as `(current_close - previous_close) / previous_close`, and is `NaN` for the first row of each ticker.
+
+# Example
+
+```julia
+prices = DataFrame(
+    Ticker = ["A", "A", "B", "B", "B"],
+    Date = [Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-03")],
+    Close = [100.0, 110.0, 200.0, 210.0, 220.0]
+)
+returns(prices)
+# Output:
+# 5×3 DataFrame
+# Row │ Ticker  Date        Close
+#     │ String  Date        Float64
+#─────┼─────────────────────────────
+#   1 │ A       2020-01-01  NaN
+#   2 │ A       2020-01-02  0.10
+#   3 │ B       2020-01-01  NaN
+#   4 │ B       2020-01-02  0.05
+#   5 │ B       2020-01-03  0.047619
+"""
 function returns(prices::Union{DataFrame, SubDataFrame})::DataFrame
     data = DataFrame()
-
     for ticker_group in groupby(prices, :Ticker)
         @assert issorted(ticker_group, :Date)
-
-        if nrow(ticker_group) > 1
-            ticker_returns = DataFrame(
-                Ticker = ticker_group[2:end, :Ticker],
-                Date = ticker_group[2:end, :Date],
-                Close = diff(ticker_group[:, :Close]) ./ ticker_group[1:(end - 1), :Close]
-            )
-            append!(data, ticker_returns)
+        n = nrow(ticker_group)
+        ret = Array{Float64}(undef, n)
+        ret[1] = NaN
+        if n > 1
+            ret[2:end] .= diff(ticker_group[:, :Close]) ./ ticker_group[1:(end - 1), :Close]
         end
+        ticker_returns = DataFrame(Ticker = ticker_group[:, :Ticker], Date = ticker_group[:, :Date], Close = ret)
+        append!(data, ticker_returns)
     end
     return data
 end
 
+"""
+    portfolio_returns(returns::Union{DataFrame, SubDataFrame}) -> DataFrame
+
+Calculates the mean return across all tickers for each date.
+
+# Arguments
+- `returns::Union{DataFrame, SubDataFrame}`: DataFrame containing columns `:Date` and `:Close`, where `:Close` contains return values for each ticker and date.
+
+# Returns
+- `DataFrame`: A DataFrame with columns `:Date` and `:Close`, where `:Close` is the mean return across all tickers for that date, sorted by date.
+
+# Example
+
+```julia
+using DataFrames
+
+returns = DataFrame(
+    Ticker = ["A", "A", "B", "B", "B"],
+    Date = [Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-03")],
+    Close = [NaN, 0.10, NaN, 0.05, 0.047619047619047616]
+)
+
+portfolio_returns(returns)
+# Output:
+# 3×2 DataFrame
+# Row │ Date        Close
+#     │ Date        Float64
+#─────┼─────────────────────
+#   1 │ 2020-01-01  NaN
+#   2 │ 2020-01-02  0.075
+#   3 │ 2020-01-03  0.047619047619047616
+"""
 function portfolio_returns(returns::Union{DataFrame, SubDataFrame})
     return sort(combine(groupby(returns, :Date), :Close => mean => :Close), :Date)
 end
 
+"""
+    cum_returns(portfolio_returns::Union{DataFrame, SubDataFrame}; starting_value::Float64 = 1.0) -> DataFrame
+
+Computes cumulative returns over time from a DataFrame of portfolio returns.
+
+# Arguments
+- `portfolio_returns::Union{DataFrame, SubDataFrame}`: DataFrame containing columns `:Date` and `:Close`, where `:Close` is the periodic return (e.g., daily or yearly), and `:Date` is sorted in ascending order.
+- `starting_value::Float64 = 1.0`: Initial value for cumulative returns. If 0, the output will be the cumulative return as a growth factor (i.e., subtracting 1 at the end).
+
+# Returns
+- `DataFrame`: DataFrame with columns `:Date` and `:Close`, where `:Close` is the cumulative return at each date.
+
+# Details
+- NaN values in `:Close` are treated as zero returns.
+- The cumulative return is calculated as the cumulative product of (return + 1) at each step.
+
+# Example
+
+```julia
+using DataFrames
+
+portfolio_returns = DataFrame(
+    Date = [Date("2020-01-01"), Date("2020-01-02"), Date("2020-01-03")],
+    Close = [NaN, 0.10, 0.05]
+)
+
+cum_returns(portfolio_returns)
+# Output:
+# 3×2 DataFrame
+# Row │ Date        Close
+#     │ Date        Float64
+#─────┼─────────────────────
+#   1 │ 2020-01-01  1.0
+#   2 │ 2020-01-02  1.1
+#   3 │ 2020-01-03  1.155
+"""
 function cum_returns(portfolio_returns::Union{DataFrame, SubDataFrame}; starting_value::Float64 = 1.0)::DataFrame
     @assert issorted(portfolio_returns, :Date)
 
@@ -72,6 +192,49 @@ function cum_returns(portfolio_returns::Union{DataFrame, SubDataFrame}; starting
     return data
 end
 
+"""
+    cum_returns_strategies(
+        returns_group::GroupedDataFrame; starting_value = 1.0
+    ) -> DataFrame
+
+Computes cumulative returns for each group (e.g., annual or strategy periods) in a `GroupedDataFrame`, chaining the final cumulative value from one group as the starting value for the next.
+
+# Arguments
+- `returns_group::GroupedDataFrame`: A grouped DataFrame, typically grouped by a period such as year, where each group contains columns `:Date` and `:Close` (return).
+- `starting_value`: The initial value for the cumulative returns. Defaults to `1.0`.
+
+# Returns
+- `DataFrame`: Concatenated DataFrame of cumulative returns across all groups, with the starting value of each group set to the final cumulative value of the previous group.
+
+# Details
+- Each group's DataFrame is processed in sorted order of its keys.
+- For each group, the cumulative returns are computed (using `cum_returns`), beginning with the cumulative value at the end of the previous group.
+- The output DataFrame contains all dates and cumulative returns, preserving the order.
+
+# Example
+
+```julia
+using DataFrames
+
+returns = DataFrame(
+    Year = [2020, 2020, 2021, 2021],
+    Date = [Date("2020-01-01"), Date("2020-01-02"), Date("2021-01-01"), Date("2021-01-02")],
+    Close = [0.05, 0.10, 0.02, 0.03]
+)
+
+returns_group = groupby(returns, :Year)
+
+cum_returns_strategies(returns_group)
+# Output:
+# 4×2 DataFrame
+# Row │ Date        Close
+#     │ Date        Float64
+#─────┼─────────────────────
+#   1 │ 2020-01-01    1.05
+#   2 │ 2020-01-02    1.155
+#   3 │ 2021-01-01    1.1781
+#   4 │ 2021-01-02    1.213443
+"""
 function cum_returns_strategies(
         returns_group::GroupedDataFrame; starting_value = 1.0
     )

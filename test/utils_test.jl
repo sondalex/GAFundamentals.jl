@@ -584,3 +584,56 @@ end
     )
     @test dataframes_equal(result_zero, expected_zero)
 end
+
+@testset "cum_returns_strategies chains cumulative returns across groups, including NaN case" begin
+    returns = DataFrame(
+        Year = [
+            2020,
+            2020,
+            2021,
+            2021,
+            2021,
+        ],
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2021-01-01"),
+            Date("2021-01-02"),
+            Date("2021-01-03"),
+        ],
+        Close = [
+            0.05,
+            NaN,
+            0.02,
+            0.03,
+            NaN,
+        ]
+    )
+
+    returns_group = groupby(returns, :Year)
+    result = cum_returns_strategies(returns_group)
+
+    # Calculations:
+    # 2020: [1.05, 1.05] (since NaN is treated as 0 in cum_returns)
+    # 2021: [1.071, 1.10313, 1.10313]
+    newstarting_value = (1.0 + 0.05)
+    expected = DataFrame(
+        Date = [
+            Date("2020-01-01"),
+            Date("2020-01-02"),
+            Date("2021-01-01"),
+            Date("2021-01-02"),
+            Date("2021-01-03"),
+        ],
+        Close = [
+            (1.0 + 0.05),
+            (1.0 + 0.05),
+            newstarting_value * (1.0 + 0.02),
+            newstarting_value * (1.0 + 0.02) * (1.0 + 0.03),
+            newstarting_value * (1.0 + 0.02) * (1.0 + 0.03),
+        ]
+    )
+
+    @test result.Date == expected.Date
+    @test all(isapprox.(result.Close, expected.Close; atol = 1.0e-8))
+end

@@ -337,6 +337,27 @@ function get_fundamental_names(names::Vector{String})
     return filter(name -> name ∉ ["Year", "Ticker"], names)
 end
 
+"""
+    top_n(rank::DataFrame, n::Int64; rev::Bool = false)::DataFrame
+
+Selects the top `n` tickers by rank for each year from a DataFrame.
+
+# Arguments
+- `rank::DataFrame`: DataFrame containing at least `:Year`, `:Rank`, and `:Ticker` columns.
+- `n::Int64`: Number of top tickers to select for each year.
+- `rev::Bool`: If `true`, select the highest ranks (largest values); if `false`, select the lowest ranks (default).
+
+# Returns
+A DataFrame with the top `n` tickers per year, with columns `:Ticker` and `:Year`.
+
+# Throws
+- `BoundsError` if `n` is greater than the number of rows for any year.
+
+# Example
+```julia
+df = DataFrame(Ticker = ["A", "B", "C", "D"], Year = [2020, 2020, 2021, 2021], Rank = [1, 2, 1, 2])
+top_n(df, 1)
+"""
 function top_n(rank::DataFrame, n::Int64; rev::Bool = false)::DataFrame
     gd = groupby(rank, :Year)
     dim = n * length(gd)
@@ -375,10 +396,10 @@ function bottom_n(rank::DataFrame, n::Int64)
     return top_n(rank, n, rev = true)
 end
 
-function plot_portfolio(prices::DataFrame, fundamentals::DataFrame, groups::Dict{String, String})
+function plot_portfolio(prices::DataFrame, fundamentals::DataFrame, groups::Dict{String, String}, n::Int)
     rank = compute_rank(fundamentals, groups)
-    tn = top_n(rank, 3)
-    bn = bottom_n(rank, 3)
+    tn = top_n(rank, n)
+    bn = bottom_n(rank, n)
 
     top_mirrored = mirror(prices, tn)
     bottom_mirrored = mirror(prices, bn)

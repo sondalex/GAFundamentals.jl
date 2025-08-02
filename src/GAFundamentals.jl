@@ -98,7 +98,8 @@ end
 function fitness(
         prices::DataFrame,
         fundamentals::DataFrame,
-        groups::Dict{String, String};
+        groups::Dict{String, String},
+        n::Int;
         along::Bool = false,
     )
     gx = [0.0]
@@ -126,8 +127,8 @@ function fitness(
             fundamentals[:, [["Ticker", "Year"]..., colnames...]],
             filtered_groups
         )
-        tn = top_n(rank, 3)
-        bn = bottom_n(rank, 3)
+        tn = top_n(rank, n)
+        bn = bottom_n(rank, n)
 
         top_mirrored = mirror(prices, tn)
         bottom_mirrored = mirror(prices, bn)
@@ -198,6 +199,7 @@ function run(
             String,
         },
         output::AbstractString,
+        n::Int,
         verbose::Bool,
         user_solutions::Union{DataFrame, Nothing},
         f_calls_limit,
@@ -224,7 +226,7 @@ function run(
             time_limit = time_limit
         )
     )
-    f = fitness(prices, fundamentals, fundamental_groups; along = along)
+    f = fitness(prices, fundamentals, fundamental_groups, n; along = along)
     if !isnothing(user_solutions)
         @assert ncol(user_solutions) == n_features
         user_solutions = replace(v -> Bool(v) ? THRESHOLD : 0, Matrix(float.(user_solutions)))
@@ -242,7 +244,7 @@ function run(
     fundamental_names = get_fundamental_names(names(fundamentals))
     colnames = fundamental_names[optimal_mask]
 
-    p1 = plot_portfolio(prices, fundamentals, fundamental_groups)
+    p1 = plot_portfolio(prices, fundamentals, fundamental_groups, n)
     save_metadata(
         fundamental_names,
         colnames,
@@ -254,7 +256,8 @@ function run(
     p2 = plot_portfolio(
         prices,
         fundamentals[:, selected_columns],
-        filtered_groups
+        filtered_groups,
+        n
     )
     return savefig(p2, joinpath(output, "optimized.png"))
 end
@@ -263,7 +266,8 @@ end
 @Comonicon.main function main(
         prices_path::Path,
         fundamentals_path::Path,
-        output::Path;
+        output::Path,
+        n::Int;
         user_sol_path::Path = Path(""),
         verbose::Bool = false,
         f_calls_limit = 10000.0,
@@ -289,6 +293,7 @@ end
         fundamentals,
         fundamentals_groups,
         output.content,
+        n,
         verbose,
         user_solutions,
         f_calls_limit,

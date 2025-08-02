@@ -637,3 +637,38 @@ end
     @test result.Date == expected.Date
     @test all(isapprox.(result.Close, expected.Close; atol = 1.0e-8))
 end
+
+@testset "top_n tests" begin
+    df = DataFrame(
+        Ticker = ["A", "B", "C", "D", "E", "F"], 
+        Year = [2020, 2020, 2020, 2021, 2021, 2021], 
+        Rank = [2, 1, 3, 3, 1, 2]
+    )
+
+    result = top_n(df, 2)
+    @test result == DataFrame(
+        Ticker = ["B", "A", "E", "F"], 
+        Year = [2020, 2020, 2021, 2021]
+    )
+
+    result_rev = top_n(df, 2; rev = true)
+    @test result_rev == DataFrame(
+        Ticker = ["C", "A", "D", "F"],
+        Year = [2020, 2020, 2021, 2021]
+    )
+
+    # Test n > rows: should throw BoundsError
+    df_small = DataFrame(
+        Ticker = ["X", "Y"],
+        Year = [2022, 2022],
+        Rank = [1, 2]
+    )
+    @test_throws BoundsError top_n(df_small, 3)
+
+    # Test correct year extraction
+    result_years = top_n(df, 1)
+    @test result_years == DataFrame(
+        Ticker = ["B", "E"],
+        Year = [2020, 2021]
+    )
+end
